@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+from dotenv import load_dotenv
 from parser import langchain_docs_extractor
 
 import weaviate
@@ -13,14 +14,19 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.utils.html import PREFIXES_TO_IGNORE_REGEX, SUFFIXES_TO_IGNORE_REGEX
 from langchain_community.vectorstores import Weaviate
 from langchain_core.embeddings import Embeddings
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import DashScopeEmbeddings
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def get_embeddings_model() -> Embeddings:
-    return OpenAIEmbeddings(model="text-embedding-3-small", chunk_size=200)
+    return DashScopeEmbeddings(
+        model="text-embedding-v4",
+        dashscope_api_key=os.environ.get("TONGYI_API_KEY"),
+    )
 
 
 def metadata_extractor(meta: dict, soup: BeautifulSoup) -> dict:
@@ -69,17 +75,18 @@ def load_langsmith_docs():
 
 
 def simple_extractor(html: str) -> str:
+    # 去除HTML标签，只保留文本内容
     soup = BeautifulSoup(html, "lxml")
     return re.sub(r"\n\n+", "\n\n", soup.text).strip()
 
 
 def load_api_docs():
     return RecursiveUrlLoader(
-        url="https://api.python.langchain.com/en/latest/",
-        max_depth=2,
+        url="https://reference.langchain.com/python/langchain/", # 起始地址
+        max_depth=2, # 递归抓取深度
         extractor=simple_extractor,
-        prevent_outside=True,
-        use_async=True,
+        prevent_outside=True, # 保持在当前域名内
+        use_async=True, # 异步抓取
         timeout=600,
         # Drop trailing / to avoid duplicate pages.
         link_regex=(
@@ -90,7 +97,7 @@ def load_api_docs():
         exclude_dirs=(
             "https://api.python.langchain.com/en/latest/_sources",
             "https://api.python.langchain.com/en/latest/_modules",
-        ),
+        ), # 排除特定目录
     ).load()
 
 
@@ -98,15 +105,15 @@ def ingest_docs():
     WEAVIATE_URL = os.environ["WEAVIATE_URL"]
     WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
     RECORD_MANAGER_DB_URL = os.environ["RECORD_MANAGER_DB_URL"]
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=200)
+    # 单行最大 Token 数
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     embedding = get_embeddings_model()
 
     client = weaviate.Client(
         url=WEAVIATE_URL,
         auth_client_secret=weaviate.AuthApiKey(api_key=WEAVIATE_API_KEY),
     )
-    print("aaaaa:",client.is_ready())
+    print("Client Ready:",client.is_ready()) # Weaviate 向量数据库连接测试
     vectorstore = Weaviate(
         client=client,
         index_name=WEAVIATE_DOCS_INDEX_NAME,
@@ -150,6 +157,7 @@ def ingest_docs():
         cleanup="full",
         source_id_key="source",
         force_update=(os.environ.get("FORCE_UPDATE") or "false").lower() == "true",
+        batch_size=10,
     )
 
     logger.info(f"Indexing stats: {indexing_stats}")

@@ -2,7 +2,13 @@ import os
 from operator import itemgetter
 from typing import Dict, List, Optional, Sequence
 
+from dotenv import load_dotenv
+
 import weaviate
+
+# ...existing code...
+
+load_dotenv()
 from constants import WEAVIATE_DOCS_INDEX_NAME
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -236,7 +242,13 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     )
 
 
-gpt_3_5 = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, streaming=True)
+gpt_3_5 = ChatOpenAI(
+    model="qwen-flash",
+    openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    openai_api_key=os.environ.get("TONGYI_API_KEY"),
+    temperature=0,
+    streaming=True,
+)
 claude_3_haiku = ChatAnthropic(
     model="claude-3-haiku-20240307",
     temperature=0,
